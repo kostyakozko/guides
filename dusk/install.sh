@@ -31,12 +31,15 @@ function install_docker() {
     if ! [ -x "$(command -v docker)" ]; then
         echo "Docker is not installed. Installing Docker..."
         sudo apt-get update
-        sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+        sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common 
         curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
         sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
         sudo apt-get update
         sudo apt-get install -y docker-ce
         sudo usermod -aG docker $USER
+        docker_compose_version=v2.16.0
+        sudo wget -O /usr/bin/docker-compose "https://github.com/docker/compose/releases/download/${docker_compose_version}/docker-compose-`uname -s`-`uname -m`"
+        chmod +x /usr/bin/docker-compose
         echo "Docker installed successfully"
     else
         echo "Docker is already installed"
@@ -51,6 +54,11 @@ function request_password() {
     fi
 }
 
+function fix_hosts {
+    grep -q "165.232.95.210 bootstrap1.testnet.dusk.network" /etc/hosts || echo "165.232.95.210 bootstrap1.testnet.dusk.network" >> /etc/hosts
+    grep -q "206.189.53.129 bootstrap2.testnet.dusk.network" /etc/hosts || echo "206.189.53.129 bootstrap2.testnet.dusk.network" >> /etc/hosts
+}
+
 function prepare_files {
   mkdir -p $HOME/rusk
   cd $HOME/rusk
@@ -63,7 +71,7 @@ DIR="/opt/dusk"
 if [ "\$(ls -A \$DIR)" ]; then
   echo "Cтартуем..."
 else
-  bash <(curl -s https://raw.githubusercontent.com/DOUBLE-TOP/guides/main/dusk/itn-installer.sh)
+  curl --proto "=https" --tlsv1.2 -sSfL https://github.com/dusk-network/node-installer/releases/download/v0.2.0/node-installer.sh | sh
 fi
 EOF
 
@@ -122,14 +130,15 @@ EOF
 }
 
 function build_container {
-  docker compose build
+  docker-compose build
 }
 
 function start_dusk {
-  docker compose run dusk bash -c "/prestart.sh"
-  docker compose run dusk bash -c "/opt/dusk/bin/rusk-wallet --state http://127.0.0.1:8980 --password \$DUSK_CONSENSUS_KEYS_PASS create --seed-file /opt/dusk/seed.txt"
-  docker compose run dusk bash -c "/opt/dusk/bin/rusk-wallet --state http://127.0.0.1:8980 --password \$DUSK_CONSENSUS_KEYS_PASS export -d /opt/dusk/conf -n consensus.keys"
-  docker compose up -d
+  docker-compose run dusk bash -c "/prestart.sh"
+  docker-compose up -d
+  sleep 15
+  docker-compose run dusk bash -c "/opt/dusk/bin/rusk-wallet --state http://127.0.0.1:8980 --password \$DUSK_CONSENSUS_KEYS_PASS create --seed-file /opt/dusk/seed.txt"
+  docker-compose run dusk bash -c "/opt/dusk/bin/rusk-wallet --state http://127.0.0.1:8980 --password \$DUSK_CONSENSUS_KEYS_PASS export -d /opt/dusk/conf -n consensus.keys"
 }
 
 function main {
@@ -144,9 +153,11 @@ function main {
   output "Installing Dusk Network..."
   line
   install_docker
+  sudo apt install python3-requests -y
   line
   output "Preparing files..."
   prepare_files
+  fix_hosts
   build_container
   start_dusk
   line
